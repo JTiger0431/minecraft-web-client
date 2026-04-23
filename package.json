@@ -2,6 +2,13 @@
   "name": "minecraft-web-client",
   "version": "0.0.0-dev",
   "description": "A minecraft client running in a browser",
+  "exports": {
+    "./mineflayer": {
+      "types": "./node/mineflayer/index.d.ts",
+      "require": "./node/mineflayer/index.js",
+      "default": "./node/mineflayer/index.js"
+    }
+  },
   "scripts": {
     "dev-rsbuild": "rsbuild dev",
     "dev-proxy": "node server.js",
@@ -33,7 +40,9 @@
     "run-all": "run-p start run-playground",
     "watch-playground": "rsbuild dev --config renderer/rsbuild.config.ts",
     "update-git-deps": "tsx scripts/updateGitDeps.ts",
-    "request-data": "tsx scripts/requestData.ts"
+    "request-data": "tsx scripts/requestData.ts",
+    "prepack": "node scripts/preparePackageForPack.cjs prepack",
+    "postpack": "node scripts/preparePackageForPack.cjs postpack"
   },
   "keywords": [
     "prismarine",
@@ -50,6 +59,9 @@
     }
   },
   "license": "MIT",
+  "peerDependencies": {
+    "mineflayer": ">=4.x"
+  },
   "dependencies": {
     "@dimaka/interface": "0.0.3-alpha.0",
     "@floating-ui/react": "^0.26.1",

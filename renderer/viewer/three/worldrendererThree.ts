@@ -10,7 +10,7 @@ import { chunkPos, sectionPos } from '../lib/simpleUtils'
 import { WorldRendererCommon } from '../lib/worldrendererCommon'
 import { addNewStat } from '../lib/ui/newStats'
 import { MesherGeometryOutput } from '../lib/mesher/shared'
-import { ItemSpecificContextProperties } from '../lib/basePlayerState'
+import { ItemSpecificContextProperties, MAX_BIRDSEYE_DISTANCE, MAX_BIRDSEYE_PITCH, MIN_BIRDSEYE_DISTANCE, MIN_BIRDSEYE_PITCH } from '../lib/basePlayerState'
 import { setBlockPosition } from '../lib/mesher/standaloneRenderer'
 import { getBannerTexture, createBannerMesh, releaseBannerTexture } from './bannerRenderer'
 import { getMyHand } from './hand'
@@ -29,6 +29,7 @@ import { WaypointsRenderer } from './waypoints'
 import { DEFAULT_TEMPERATURE, SkyboxRenderer } from './skyboxRenderer'
 import { FireworksManager } from './fireworks'
 import { downloadWorldGeometry } from './worldGeometryExport'
+import { Primitives } from './primitives'
 
 type SectionKey = string
 
@@ -78,6 +79,7 @@ export class WorldRendererThree extends WorldRendererCommon {
   DEBUG_RAYCAST = false
   skyboxRenderer: SkyboxRenderer
   fireworks: FireworksManager
+  primitives: Primitives
 
   private currentPosTween?: tweenJs.Tween<THREE.Vector3>
   private currentRotTween?: tweenJs.Tween<{ pitch: number, yaw: number }>
@@ -114,6 +116,7 @@ export class WorldRendererThree extends WorldRendererCommon {
     this.media = new ThreeJsMedia(this)
     this.waypoints = new WaypointsRenderer(this)
     this.fireworks = new FireworksManager(this.scene)
+    this.primitives = new Primitives(this.scene)
 
     // this.fountain = new Fountain(this.scene, this.scene, {
     //   position: new THREE.Vector3(0, 10, 0),
@@ -139,6 +142,7 @@ export class WorldRendererThree extends WorldRendererCommon {
       this.waypoints.clear()
       // Clear fireworks
       this.fireworks.clear()
+      this.primitives.clear()
     })
   }
 
@@ -165,6 +169,18 @@ export class WorldRendererThree extends WorldRendererCommon {
 
   updatePlayerEntity (e: any) {
     this.entities.handlePlayerEntity(e)
+  }
+
+  setPrimitive (primitive: any) {
+    this.primitives.update(primitive)
+  }
+
+  removePrimitive (id: string) {
+    this.primitives.remove(id)
+  }
+
+  clearPrimitives () {
+    this.primitives.clear()
   }
 
   resetScene () {
@@ -206,10 +222,15 @@ export class WorldRendererThree extends WorldRendererCommon {
     })
     this.onReactivePlayerStateUpdated('perspective', (value) => {
       // Update camera perspective when it changes
-      const vecPos = new Vec3(this.cameraObject.position.x, this.cameraObject.position.y, this.cameraObject.position.z)
-      this.updateCamera(vecPos, this.cameraShake.getBaseRotation().yaw, this.cameraShake.getBaseRotation().pitch)
+      this.refreshCameraFromCurrentState()
       // todo also update camera when block within camera was changed
     })
+    for (const key of ['birdseyeYaw', 'birdseyePitch', 'birdseyeDistance', 'birdseyePanX', 'birdseyePanY', 'birdseyePanZ'] as const) {
+      this.onReactivePlayerStateUpdated(key, () => {
+        if (this.playerStateReactive.perspective !== 'birdseye') return
+        this.refreshCameraFromCurrentState()
+      }, false)
+    }
   }
 
   override watchReactiveConfig () {
@@ -543,6 +564,31 @@ export class WorldRendererThree extends WorldRendererCommon {
     this.updateCameraSectionPos()
   }
 
+  private refreshCameraFromCurrentState () {
+    const vecPos = new Vec3(this.cameraObject.position.x, this.cameraObject.position.y, this.cameraObject.position.z)
+    const rotation = this.cameraShake.getBaseRotation()
+    this.updateCamera(vecPos, rotation.yaw, rotation.pitch)
+  }
+
+  private updateBirdseyeCamera () {
+    const target = new THREE.Vector3(
+      this.playerStateReactive.birdseyePanX,
+      this.playerStateReactive.birdseyePanY,
+      this.playerStateReactive.birdseyePanZ
+    )
+    const yaw = this.playerStateReactive.birdseyeYaw
+    const pitch = THREE.MathUtils.clamp(this.playerStateReactive.birdseyePitch, MIN_BIRDSEYE_PITCH, MAX_BIRDSEYE_PITCH)
+    const distance = THREE.MathUtils.clamp(this.playerStateReactive.birdseyeDistance, MIN_BIRDSEYE_DISTANCE, MAX_BIRDSEYE_DISTANCE)
+    const horizontalDistance = Math.cos(pitch) * distance
+
+    this.camera.position.set(
+      target.x + Math.sin(yaw) * horizontalDistance,
+      target.y + Math.sin(pitch) * distance,
+      target.z + Math.cos(yaw) * horizontalDistance
+    )
+    this.camera.lookAt(target)
+  }
+
   getThirdPersonCamera (pos: THREE.Vector3 | null, yaw: number, pitch: number) {
     pos ??= this.cameraObject.position
 
@@ -691,10 +737,12 @@ export class WorldRendererThree extends WorldRendererCommon {
         .onUpdate(params => this.cameraShake.setBaseRotation(params.pitch, params.yaw - yawOffset)).start()
     } else {
       this.currentRotTween?.stop()
-      this.cameraShake.setBaseRotation(pitch, yaw)
-
       const { perspective } = this.playerStateReactive
-      if (perspective === 'third_person_back' || perspective === 'third_person_front') {
+      this.cameraShake.setBaseRotation(perspective === 'birdseye' ? 0 : pitch, perspective === 'birdseye' ? 0 : yaw)
+
+      if (perspective === 'birdseye') {
+        this.updateBirdseyeCamera()
+      } else if (perspective === 'third_person_back' || perspective === 'third_person_front') {
         // Use getThirdPersonCamera for proper raycasting with max distance of 4
         const currentCameraPos = this.cameraObject.position
         const thirdPersonPos = this.getThirdPersonCamera(
@@ -1028,6 +1076,7 @@ export class WorldRendererThree extends WorldRendererCommon {
     super.destroy()
     this.skyboxRenderer.dispose()
     this.fireworks.dispose()
+    this.primitives.clear()
   }
 
   shouldObjectVisible (object: THREE.Object3D) {

@@ -24,6 +24,7 @@ export type ConnectOptions = {
   authenticatedAccount?: AuthenticatedAccount | true
   peerOptions?: any
   viewerWsConnect?: string
+  viewerReadOnly?: boolean
   saveServerToHistory?: boolean
 
   /** Will enable local replay server */

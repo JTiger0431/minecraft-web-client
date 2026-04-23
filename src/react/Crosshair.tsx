@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import './Crosshair.css'
 import { proxy, useSnapshot } from 'valtio'
+import { gameAdditionalState } from '../globalState'
 import SharedHudVars from './SharedHudVars'
 
 // todo move to mineflayer
@@ -11,6 +12,7 @@ export const itemBeingUsed = proxy({
 
 export default () => {
   const { name: usingItem, hand } = useSnapshot(itemBeingUsed)
+  const { viewerReadOnly } = useSnapshot(gameAdditionalState)
 
   const [displayIndicator, setDisplayIndicator] = useState(false)
   const [indicatorProgress, setIndicatorProgress] = useState(0)
@@ -57,6 +59,8 @@ export default () => {
       clearInterval(id)
     }
   }, [usingItem])
+
+  if (viewerReadOnly) return null
 
   return <SharedHudVars>
     <div className='crosshair' />

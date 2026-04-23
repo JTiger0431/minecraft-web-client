@@ -50,6 +50,10 @@ const getBackendMethods = (worldRenderer: WorldRendererThree) => {
 
     launchFirework: worldRenderer.fireworks.launchFirework.bind(worldRenderer.fireworks),
 
+    setPrimitive: worldRenderer.setPrimitive.bind(worldRenderer),
+    removePrimitive: worldRenderer.removePrimitive.bind(worldRenderer),
+    clearPrimitives: worldRenderer.clearPrimitives.bind(worldRenderer),
+
     // New method for updating skybox
     setSkyboxImage: worldRenderer.skyboxRenderer.setSkyboxImage.bind(worldRenderer.skyboxRenderer)
   }

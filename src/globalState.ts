@@ -170,6 +170,7 @@ export const gameAdditionalState = proxy({
   noConnection: false,
   poorConnection: false,
   viewerConnection: false,
+  viewerReadOnly: false,
 
   usingServerResourcePack: false,
   typingUsers: [] as Array<{ username: string; timestamp: number }>,

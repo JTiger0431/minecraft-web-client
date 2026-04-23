@@ -35,6 +35,9 @@ export type AppQsParams = {
   // UI params
   modal?: string
   viewerConnect?: string
+  viewerViewDistance?: string
+  viewerCamera?: string
+  viewerReadOnly?: string
   playground?: string
   // Map version param
   mapVersion?: string

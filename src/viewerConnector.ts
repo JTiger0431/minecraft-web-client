@@ -5,6 +5,7 @@ import { createClient } from 'minecraft-protocol'
 import { proxy, subscribe } from 'valtio'
 import * as Gui from 'lil-gui'
 import { CustomChannelPacketFromClient, CustomChannelPacketFromServer, UIDefinition } from 'mcraft-fun-mineflayer/build/customChannel'
+import { getThreeJsRendererMethods } from 'renderer/viewer/three/threeJsMethods'
 import { activeModalStack } from './globalState'
 import { mineflayerPluginHudState } from './react/MineflayerPluginHud'
 import { mineflayerConsoleState } from './react/MineflayerPluginConsole'
@@ -19,6 +20,71 @@ export const viewerVersionState = proxy({
   requiresPass: false,
   clientIgnoredPackets: [] as string[]
 })
+
+type ViewerPrimitive = {
+  id: string
+  type: 'line'
+  points: Array<{ x: number, y: number, z: number }>
+  color?: number
+} | {
+  id: string
+  type: 'points'
+  points: Array<{ x: number, y: number, z: number }>
+  color?: number
+  size?: number
+} | {
+  id: string
+  type: 'boxgrid'
+  start: { x: number, y: number, z: number }
+  end: { x: number, y: number, z: number }
+  color?: number | string
+}
+
+type ViewerCustomChannelPacketFromClient = CustomChannelPacketFromClient | {
+  type: 'primitive:sync-request'
+}
+
+type ViewerCustomChannelPacketFromServer = CustomChannelPacketFromServer | {
+  type: 'kick'
+  reason: string
+} | {
+  type: 'primitive:set'
+  primitive: ViewerPrimitive
+} | {
+  type: 'primitive:remove'
+  id: string
+}
+
+const viewerPrimitives = new Map<string, ViewerPrimitive>()
+
+const updatePrimitiveInBackend = (primitive: ViewerPrimitive) => {
+  const methods = getThreeJsRendererMethods()
+  if (!methods?.setPrimitive) return
+  void methods.setPrimitive(primitive)
+}
+
+const removePrimitiveFromBackend = (id: string) => {
+  const methods = getThreeJsRendererMethods()
+  if (!methods?.removePrimitive) return
+  void methods.removePrimitive(id)
+}
+
+const clearViewerPrimitives = () => {
+  viewerPrimitives.clear()
+  const methods = getThreeJsRendererMethods()
+  if (!methods?.clearPrimitives) return
+  void methods.clearPrimitives()
+}
+
+export const syncViewerPrimitivesToBackend = () => {
+  const methods = getThreeJsRendererMethods()
+  if (!methods?.clearPrimitives || !methods?.setPrimitive) return
+
+  void methods.clearPrimitives()
+  for (const primitive of viewerPrimitives.values()) {
+    void methods.setPrimitive(primitive)
+  }
+}
 
 class CustomDuplex extends Duplex {
   constructor (options, public writeAction) {
@@ -139,10 +205,11 @@ const handleCustomChannel = () => {
       mineflayerConsoleState.messages = []
       mineflayerConsoleState.replEnabled = false
       mineflayerConsoleState.consoleEnabled = false
+      clearViewerPrimitives()
     }
   })
 
-  const send = (data: CustomChannelPacketFromClient) => {
+  const send = (data: ViewerCustomChannelPacketFromClient) => {
     bot._client.writeChannel(CHANNEL_NAME, JSON.stringify(data))
   }
 
@@ -154,7 +221,7 @@ const handleCustomChannel = () => {
     })
   }
 
-  const on = (callback: (data: CustomChannelPacketFromServer) => void) => {
+  const on = (callback: (data: ViewerCustomChannelPacketFromServer) => void) => {
     bot._client.on(CHANNEL_NAME as any, (data) => {
       const parsed = JSON.parse(data.toString())
       callback(parsed)
@@ -288,6 +355,16 @@ const handleCustomChannel = () => {
         console.log('Method result', data.result)
         break
       }
+      case 'primitive:set': {
+        viewerPrimitives.set(data.primitive.id, data.primitive)
+        updatePrimitiveInBackend(data.primitive)
+        break
+      }
+      case 'primitive:remove': {
+        viewerPrimitives.delete(data.id)
+        removePrimitiveFromBackend(data.id)
+        break
+      }
       // No default
     }
   })
@@ -303,6 +380,10 @@ export const onBotCreatedViewerHandler = async () => {
 
   await new Promise<void>(resolve => {
     bot.once('inject_allowed', resolve)
+  })
+
+  send({
+    type: 'primitive:sync-request'
   })
 
   const originalSetControlState = bot.setControlState.bind(bot)

@@ -126,6 +126,28 @@ export const isCommandDisabled = (command: Command) => {
   return miscUiState.appConfig?.disabledCommands?.includes(command)
 }
 
+const isViewerReadOnlySession = () => gameAdditionalState.viewerConnection && gameAdditionalState.viewerReadOnly
+
+const viewerReadOnlyAllowedCommands = new Set<Command>([
+  'general.chat',
+  'general.command',
+  'general.rotateCameraLeft',
+  'general.rotateCameraRight',
+  'general.rotateCameraUp',
+  'general.rotateCameraDown',
+  'general.debugOverlay',
+  'general.debugOverlayHelpMenu',
+  'general.playersList',
+  'general.zoom',
+  'general.viewerConsole',
+  'general.togglePerspective',
+  'general.takeScreenshot',
+  'ui.toggleFullscreen',
+  'ui.toggleMap',
+  'ui.back',
+  'ui.pauseMenu',
+])
+
 onControInit()
 
 updateBinds(customKeymaps)
@@ -166,6 +188,7 @@ export const takeScreenshotAction = () => {
 contro.on('movementUpdate', ({ vector, soleVector, gamepadIndex }) => {
   miscUiState.usingGamepadInput = gamepadIndex !== undefined
   if (!bot || !isGameActive(false) || isSpectatingEntity()) return
+  if (isViewerReadOnlySession()) return
 
   // if (viewer.world.freeFlyMode) {
   //   // Create movement vector from input
@@ -318,6 +341,7 @@ const setSneaking = (state: boolean) => {
 const onTriggerOrReleased = (command: Command, pressed: boolean) => {
   // always allow release!
   if (!bot || !isGameActive(false)) return
+  if (isViewerReadOnlySession() && !viewerReadOnlyAllowedCommands.has(command)) return
 
   if (stringStartsWith(command, 'movement')) {
     switch (command) {
@@ -407,6 +431,9 @@ const onTriggerOrReleased = (command: Command, pressed: boolean) => {
           const currentPerspective = playerState.reactive.perspective
           // eslint-disable-next-line sonarjs/no-nested-switch
           switch (currentPerspective) {
+            case 'birdseye':
+              playerState.reactive.perspective = 'first_person'
+              break
             case 'first_person':
               playerState.reactive.perspective = 'third_person_back'
               break
@@ -491,6 +518,7 @@ function cycleHotbarSlot (dir: 1 | -1) {
 const customCommandsHandler = ({ command }) => {
   const [section, name] = command.split('.')
   if (!isGameActive(true) || section !== 'custom') return
+  if (isViewerReadOnlySession()) return
 
   if (contro.userConfig?.custom) {
     customCommandsConfig[(contro.userConfig.custom[name] as CustomCommand).type].handler((contro.userConfig.custom[name] as CustomCommand).inputs)
@@ -854,6 +882,7 @@ addEventListener('mousedown', async (e) => {
     e.preventDefault()
   }
 
+  if (isViewerReadOnlySession()) return
   if ((e.target as HTMLElement).matches?.('#VRButton')) return
   if (!isInRealGameSession() && !(e.target as HTMLElement).id.includes('ui-root')) return
   void pointerLock.requestPointerLock()

@@ -84,7 +84,7 @@ import { mainMenuState } from './react/MainMenuRenderApp'
 import './mobileShim'
 import { parseFormattedMessagePacket } from './botUtils'
 import { appStartup } from './clientMods'
-import { getViewerVersionData, getWsProtocolStream, onBotCreatedViewerHandler } from './viewerConnector'
+import { getViewerVersionData, getWsProtocolStream, onBotCreatedViewerHandler, syncViewerPrimitivesToBackend } from './viewerConnector'
 import { getWebsocketStream } from './mineflayer/websocket-core'
 import { appQueryParams, appQueryParamsArray } from './appParams'
 import { playerState } from './mineflayer/playerState'
@@ -126,10 +126,35 @@ customChannels()
 
 if (appQueryParams.testCrashApp === '2') throw new Error('test')
 
+const VIEWER_BOOTSTRAP_CONFIG_PATH = '/__minecraft-web-client-viewer-config'
+
 function hideCurrentScreens () {
   const appStatus = activeModalStack.find(x => x.reactType === 'app-status')
   activeModalStacks['main-menu'] = activeModalStack.filter(x => x !== appStatus)
   insertActiveModalStack('', appStatus ? [appStatus] : [])
+}
+
+const maybeRedirectToBundledViewerSession = async () => {
+  if (window.location.search) return false
+  if (window.location.pathname !== '/' && window.location.pathname !== '/index.html') return false
+
+  try {
+    const response = await fetch(VIEWER_BOOTSTRAP_CONFIG_PATH, {
+      cache: 'no-store',
+      headers: {
+        Accept: 'application/json'
+      }
+    })
+    if (!response.ok) return false
+
+    const payload = await response.json() as { viewerUrl?: string }
+    if (!payload.viewerUrl) return false
+
+    window.location.replace(payload.viewerUrl)
+    return true
+  } catch {
+    return false
+  }
 }
 
 const loadSingleplayer = (serverOverrides = {}, flattenedServerOverrides = {}, connectOptions?: Partial<ConnectOptions>) => {
@@ -249,6 +274,7 @@ export async function connect (connectOptions: ConnectOptions) {
         appViewer.resetBackend(true)
         localServer = window.localServer = window.server = undefined
         gameAdditionalState.viewerConnection = false
+        gameAdditionalState.viewerReadOnly = false
 
         if (bot) {
           bot.removeAllListeners()
@@ -334,7 +360,12 @@ export async function connect (connectOptions: ConnectOptions) {
     net['setProxy']({ hostname: proxy.host, port: proxy.port, headers: { Authorization: `Bearer ${new URLSearchParams(location.search).get('token') ?? ''}` }, artificialDelay: appQueryParams.addPing ? Number(appQueryParams.addPing) : undefined })
   }
 
-  const renderDistance = singleplayer ? renderDistanceSingleplayer : multiplayerRenderDistance
+  const viewerViewDistance = connectOptions.viewerWsConnect && appQueryParams.viewerViewDistance
+    ? Number(appQueryParams.viewerViewDistance)
+    : undefined
+  const renderDistance = Number.isFinite(viewerViewDistance) && viewerViewDistance && viewerViewDistance > 0
+    ? Math.floor(viewerViewDistance)
+    : (singleplayer ? renderDistanceSingleplayer : multiplayerRenderDistance)
   let updateDataAfterJoin = () => { }
   let localServer
   let localReplaySession: ReturnType<typeof startLocalReplayServer> | undefined
@@ -542,6 +573,7 @@ export async function connect (connectOptions: ConnectOptions) {
         clientDataStream.write(password)
       }
       gameAdditionalState.viewerConnection = true
+      gameAdditionalState.viewerReadOnly = connectOptions.viewerReadOnly ?? false
     }
 
     if (finalVersion) {
@@ -832,6 +864,7 @@ export async function connect (connectOptions: ConnectOptions) {
 
       console.log('bot spawned - starting viewer')
       await appViewer.startWorld(bot.world, renderDistance)
+      syncViewerPrimitivesToBackend()
       appViewer.worldView!.listenToBot(bot)
       if (appViewer.backend) {
         void appViewer.worldView!.init(bot.entity.position)
@@ -977,6 +1010,10 @@ document.body.addEventListener('touchstart', (e) => {
 
 // immediate game enter actions: reconnect or URL QS
 const maybeEnterGame = () => {
+  if (!appQueryParams.viewerConnect) {
+    void maybeRedirectToBundledViewerSession()
+  }
+
   const waitForConfigFsLoad = (fn: () => void) => {
     let unsubscribe: () => void | undefined
     const checkDone = () => {
@@ -1088,6 +1125,7 @@ const maybeEnterGame = () => {
     void connect({
       username: `viewer-${Math.random().toString(36).slice(2, 10)}`,
       viewerWsConnect: appQueryParams.viewerConnect,
+      viewerReadOnly: appQueryParams.viewerReadOnly === '1' || appQueryParams.viewerReadOnly === 'true',
     })
     return
   }

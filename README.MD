@@ -23,6 +23,7 @@ For building the project yourself / contributing, see [Development, Debugging & 
 ### Big Features
 
 - Official Mineflayer [plugin integration](https://github.com/zardoy/mcraft-fun-mineflayer-plugin)! View / Control your bot remotely.
+- Prismarine-viewer style `mineflayer` API powered by the same high-quality web renderer used by this project.
 - Open any zip world file or even folder in read-write mode!
 - Connect to Java servers running in both offline (cracked) and online mode* (it's possible because of proxy servers, see below)
 - Integrated JS server clone capable of opening Java world saves in any way (folders, zip, web chunks streaming, etc)
@@ -39,6 +40,54 @@ For building the project yourself / contributing, see [Development, Debugging & 
 - and more!
 
 All components that are in [Storybook](https://minimap.mcraft.fun/storybook/) are published as npm module and can be used in other projects: [`minecraft-react`](https://npmjs.com/minecraft-react)
+
+### Mineflayer Viewer API
+
+This package also exposes a prismarine-viewer style Node entrypoint:
+
+```js
+const mineflayer = require('mineflayer')
+const { mineflayer: mineflayerViewer } = require('minecraft-web-client/mineflayer')
+
+const bot = mineflayer.createBot({
+  host: 'localhost',
+  username: 'Bot'
+})
+
+mineflayerViewer(bot, { port: 3000, firstPerson: true })
+```
+
+Open `http://localhost:3000` to view the bot with this project's renderer.
+
+Bird's-eye controls:
+
+- Left drag rotates around the bot
+- Mouse wheel zooms in and out
+- Right drag (or `Shift` + left drag) pans the camera target
+- The built-in mineflayer viewer route opens in read-only mode, so player controls and the crosshair are disabled by default
+
+Supported v1 options:
+
+- `port` default: `3000`
+- `viewDistance` default: `6`
+- `firstPerson` default: `false` (`false` uses a bird's-eye follow camera)
+
+Supported v1 drawing methods:
+
+- `bot.viewer.drawLine(id, points, color?)`
+- `bot.viewer.drawPoints(id, points, color?, size?)`
+- `bot.viewer.drawBoxGrid(id, start, end, color?)`
+- `bot.viewer.erase(id)`
+- `bot.viewer.close()`
+
+Chat forwarding is enabled by default for this entrypoint. If you are using `mcraft-fun-mineflayer` directly instead of `minecraft-web-client/mineflayer`, set `forwardChat: true` in the plugin/server options.
+
+Current limitations:
+
+- Call it right after `createBot()` and before the bot enters the world.
+- The internal viewer bridge is attached once Mineflayer emits `inject_allowed`, so pre-login registration is required.
+- `prefix` is reserved for compatibility but not implemented in v1.
+- `blockClicked` and other prismarine-viewer event compat are not implemented in v1.
 
 ### Recommended Settings
 

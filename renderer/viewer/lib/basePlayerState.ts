@@ -5,7 +5,14 @@ import type { HandItemBlock } from '../three/holdingBlock'
 
 export type MovementState = 'NOT_MOVING' | 'WALKING' | 'SPRINTING' | 'SNEAKING'
 export type ItemSpecificContextProperties = Partial<Pick<ItemSelector['properties'], 'minecraft:using_item' | 'minecraft:use_duration' | 'minecraft:use_cycle' | 'minecraft:display_context'>>
-export type CameraPerspective = 'first_person' | 'third_person_back' | 'third_person_front'
+export type CameraPerspective = 'first_person' | 'third_person_back' | 'third_person_front' | 'birdseye'
+
+export const DEFAULT_BIRDSEYE_DISTANCE = Math.hypot(18, 6)
+export const DEFAULT_BIRDSEYE_PITCH = Math.atan2(18, 6)
+export const MIN_BIRDSEYE_DISTANCE = 4
+export const MAX_BIRDSEYE_DISTANCE = 96
+export const MIN_BIRDSEYE_PITCH = 0.15
+export const MAX_BIRDSEYE_PITCH = Math.PI / 2 - 0.05
 
 export type BlockShape = { position: any; width: any; height: any; depth: any; }
 export type BlocksShapes = BlockShape[]
@@ -49,6 +56,12 @@ export const getInitialPlayerState = () => proxy({
   heldItemMain: undefined as HandItemBlock | undefined,
   heldItemOff: undefined as HandItemBlock | undefined,
   perspective: 'first_person' as CameraPerspective,
+  birdseyeYaw: 0,
+  birdseyePitch: DEFAULT_BIRDSEYE_PITCH,
+  birdseyeDistance: DEFAULT_BIRDSEYE_DISTANCE,
+  birdseyePanX: 0,
+  birdseyePanY: 0,
+  birdseyePanZ: 0,
   onFire: false,
 
   cameraSpectatingEntity: undefined as number | undefined,
@@ -65,7 +78,7 @@ export const getPlayerStateUtils = (reactive: PlayerStateReactive) => ({
   },
   isThirdPerson () {
     if ((this as PlayerStateUtils).isSpectatingEntity()) return false
-    return reactive.perspective === 'third_person_back' || reactive.perspective === 'third_person_front'
+    return reactive.perspective === 'third_person_back' || reactive.perspective === 'third_person_front' || reactive.perspective === 'birdseye'
   }
 })
 

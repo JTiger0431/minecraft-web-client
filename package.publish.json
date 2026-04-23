@@ -1,0 +1,36 @@
+{
+  "name": "minecraft-web-client",
+  "description": "A minecraft client running in a browser",
+  "version": "0.0.0-dev",
+  "license": "MIT",
+  "keywords": [
+    "prismarine",
+    "web",
+    "client"
+  ],
+  "repository": "zardoy/minecraft-web-client",
+  "files": [
+    "dist/**/*",
+    "!dist/**/*.hot-update.*",
+    "!dist/**/*.map",
+    "node/mineflayer/**/*",
+    "README.MD",
+    "LICENSE"
+  ],
+  "exports": {
+    "./mineflayer": {
+      "types": "./node/mineflayer/index.d.ts",
+      "require": "./node/mineflayer/index.js",
+      "default": "./node/mineflayer/index.js"
+    }
+  },
+  "peerDependencies": {
+    "mineflayer": ">=4.x"
+  },
+  "dependencies": {
+    "compression": "^1.7.4",
+    "express": "^4.18.2",
+    "mcraft-fun-mineflayer": "^0.1.23",
+    "minecraft-data": "^3.109.0"
+  }
+}

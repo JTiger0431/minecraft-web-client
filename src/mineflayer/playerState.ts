@@ -1,9 +1,11 @@
 import { HandItemBlock } from 'renderer/viewer/three/holdingBlock'
-import { getInitialPlayerState, getPlayerStateUtils, PlayerStateReactive, PlayerStateRenderer, PlayerStateUtils } from 'renderer/viewer/lib/basePlayerState'
+import { DEFAULT_BIRDSEYE_PITCH, getInitialPlayerState, getPlayerStateUtils, PlayerStateReactive, PlayerStateRenderer, PlayerStateUtils } from 'renderer/viewer/lib/basePlayerState'
 import { subscribe } from 'valtio'
 import { subscribeKey } from 'valtio/utils'
 import { gameAdditionalState } from '../globalState'
 import { options } from '../optionsStorage'
+import { appQueryParams } from '../appParams'
+import { lastConnectOptions } from '../appStatus'
 
 /**
  * can be used only in main thread. Mainly for more convenient reactive state updates.
@@ -43,7 +45,9 @@ export class PlayerStateControllerMain {
   private botCreated () {
     console.log('bot created & plugins injected')
     this.reactive = getInitialPlayerState()
-    this.reactive.perspective = options.defaultPerspective
+    this.reactive.perspective = this.getInitialPerspective()
+    this.reactive.birdseyeYaw = bot.entity?.yaw ?? 0
+    this.reactive.birdseyePitch = DEFAULT_BIRDSEYE_PITCH
     this.utils = getPlayerStateUtils(this.reactive)
     this.onBotCreatedOrGameJoined()
 
@@ -199,6 +203,14 @@ export class PlayerStateControllerMain {
     subscribeKey(this.reactive, 'eyeHeight', () => {
       appViewer.backend?.updateCamera(bot.entity.position, bot.entity.yaw, bot.entity.pitch)
     })
+  }
+
+  private getInitialPerspective () {
+    if (lastConnectOptions.value?.viewerWsConnect) {
+      return appQueryParams.viewerCamera === 'birdseye' ? 'birdseye' : 'first_person'
+    }
+
+    return options.defaultPerspective
   }
 
   // #endregion
