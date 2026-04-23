@@ -54,7 +54,7 @@ const MainMenuBase = ({
   versionTitle,
   onVersionStatusClick,
   bottomRightLinks,
-  singleplayerAvailable = true,
+  singleplayerAvailable = false,
 }: Props) => {
   const { appConfig } = useSnapshot(miscUiState)
 
@@ -156,7 +156,7 @@ const MainMenuBase = ({
         >
           Connect to server
         </ButtonWithTooltip>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+        {/* <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <ButtonWithTooltip
             style={{ width: 150 }}
             {...singleplayerLongPress}
@@ -188,15 +188,15 @@ const MainMenuBase = ({
               placement: 'bottom-start',
             }}
           />
-        </div>
+        </div> */}
         <Button
           onClick={optionsAction}
         >
           Options
         </Button>
-        <div className={styles['menu-row']}>
+        {/* <div className={styles['menu-row']}>
           <PauseLinkButtons />
-        </div>
+        </div> */}
         <CreditsBookButton />
       </div>
 

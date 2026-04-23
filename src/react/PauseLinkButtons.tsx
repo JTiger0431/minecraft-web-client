@@ -14,15 +14,15 @@ function PauseLinkButtonsInner () {
   if (!pauseLinksConfig) return null
 
   const renderButton = (button: Record<string, any>, style: React.CSSProperties, key: number) => {
-    if (button.type === 'discord') {
-      return <DiscordButton key={key} style={style} text={button.text}/>
-    }
-    if (button.type === 'github') {
-      return <Button key={key} className="button" style={style} onClick={() => openGithub()}>{button.text ?? 'GitHub'}</Button>
-    }
-    if (button.type === 'url' && button.text) {
-      return <Button key={key} className="button" style={style} onClick={() => openURL(button.url)}>{button.text}</Button>
-    }
+    // if (button.type === 'discord') {
+    //   return <DiscordButton key={key} style={style} text={button.text}/>
+    // }
+    // if (button.type === 'github') {
+    //   return <Button key={key} className="button" style={style} onClick={() => openGithub()}>{button.text ?? 'GitHub'}</Button>
+    // }
+    // if (button.type === 'url' && button.text) {
+    //   return <Button key={key} className="button" style={style} onClick={() => openURL(button.url)}>{button.text}</Button>
+    // }
     return null
   }
 

@@ -8,25 +8,11 @@
   "peerJsServerFallback": "https://p2p.mcraft.fun",
   "promoteServers": [
     {
-      "ip": "wss://play.mcraft.fun"
-    },
-    {
-      "ip": "wss://play.webmc.fun",
-      "name": "WebMC"
-    },
-    {
-      "ip": "wss://ws.fuchsmc.net"
-    },
-    {
-      "ip": "wss://play3.mcraft.fun"
-    },
-    {
-      "ip": "wss://play-creative.mcraft.fun",
-      "description": "Might be available soon, stay tuned!"
+      "ip": "127.0.0.1"
     }
   ],
   "rightSideText": "A Minecraft client clone in the browser!",
-  "splashText": "Thanks for testing my chaos!",
+  "splashText": "",
   "splashTextFallback": "Welcome!",
   "pauseLinks": [
     [

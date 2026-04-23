@@ -118,7 +118,7 @@ const AddServerOrConnectBase = ({ onBack, onConfirm, title = 'Add a Server', ini
   }
 
   const displayConnectButton = qsParamIp
-  const serverExamples = ['example.com:25565', 'play.hypixel.net', 'ws://play.mcraft.fun', 'wss://play.webmc.fun']
+  const serverExamples = ['127.0.0.1']
   // pick random example
   const example = serverExamples[Math.floor(Math.random() * serverExamples.length)]
 
