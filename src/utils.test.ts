@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseServerAddress as parseServerAddressOriginal } from './parseServerAddress'
+import { getViewerWebSocketUrl } from './viewerUrl'
 
 const parseServerAddress = (address: string | undefined, removeHttp = true) => {
   const { serverIpFull, ...result } = parseServerAddressOriginal(address, removeHttp)
@@ -102,5 +103,23 @@ describe('parseServerAddress', () => {
       port: '25565',
       isWebSocket: false
     })
+  })
+})
+
+describe('getViewerWebSocketUrl', () => {
+  it('should derive websocket URL for local root viewer', () => {
+    expect(getViewerWebSocketUrl('http://127.0.0.1:3000/')).toBe('ws://127.0.0.1:3000/__minecraft-web-client-ws?transport=base64')
+  })
+
+  it('should preserve Jupyter-style proxy paths', () => {
+    expect(getViewerWebSocketUrl('http://host:8000/user/alice/proxy/3000/')).toBe('ws://host:8000/user/alice/proxy/3000/__minecraft-web-client-ws?transport=base64')
+  })
+
+  it('should use secure websockets for https proxy paths', () => {
+    expect(getViewerWebSocketUrl('https://example.com/apps/mc/')).toBe('wss://example.com/apps/mc/__minecraft-web-client-ws?transport=base64')
+  })
+
+  it('should resolve index.html to its containing directory', () => {
+    expect(getViewerWebSocketUrl('https://example.com/apps/mc/index.html')).toBe('wss://example.com/apps/mc/__minecraft-web-client-ws?transport=base64')
   })
 })

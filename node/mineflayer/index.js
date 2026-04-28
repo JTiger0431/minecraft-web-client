@@ -13,6 +13,8 @@ const DEFAULT_VIEW_DISTANCE = 6
 const DIST_DIR = path.resolve(__dirname, '..', '..', 'dist')
 const INDEX_FILE = path.join(DIST_DIR, 'index.html')
 const VIEWER_BOOTSTRAP_CONFIG_PATH = '/__minecraft-web-client-viewer-config'
+const DIST_ASSET_DIR_NAMES = ['background', 'static', 'textures']
+let distRootAssetFileNames
 
 function assertViewerCanStart (bot, settings) {
   if (settings.prefix) {
@@ -36,33 +38,102 @@ function assertViewerCanStart (bot, settings) {
   }
 }
 
-function buildViewerUrl (req, settings) {
-  const forwardedProtocol = req.headers['x-forwarded-proto']
-  const httpProtocol = (Array.isArray(forwardedProtocol) ? forwardedProtocol[0] : forwardedProtocol)?.split(',')[0]
-    || (req.socket.encrypted ? 'https' : 'http')
-  const wsProtocol = httpProtocol === 'https' ? 'wss' : 'ws'
-  const host = req.headers.host || `127.0.0.1:${settings.port}`
-  const viewerUrl = new URL(`${httpProtocol}://${host}/`)
-
-  viewerUrl.searchParams.set('viewerConnect', `${wsProtocol}://${host}`)
-  viewerUrl.searchParams.set('viewerViewDistance', String(settings.viewDistance))
-  viewerUrl.searchParams.set('viewerCamera', settings.firstPerson ? 'first_person' : 'birdseye')
-  viewerUrl.searchParams.set('viewerReadOnly', '1')
-
-  return viewerUrl.toString()
+function buildViewerBootstrapPayload (settings) {
+  return {
+    viewerViewDistance: String(settings.viewDistance),
+    viewerCamera: settings.firstPerson ? 'first_person' : 'birdseye',
+    viewerReadOnly: '1',
+  }
 }
 
-function buildViewerBootstrapPayload (req, settings) {
-  const viewerUrl = buildViewerUrl(req, settings)
-  const parsedViewerUrl = new URL(viewerUrl)
+function isViewerBootstrapConfigPath (reqPath) {
+  return reqPath === VIEWER_BOOTSTRAP_CONFIG_PATH || reqPath.endsWith(VIEWER_BOOTSTRAP_CONFIG_PATH)
+}
 
-  return {
-    viewerUrl,
-    viewerConnect: parsedViewerUrl.searchParams.get('viewerConnect'),
-    viewerViewDistance: parsedViewerUrl.searchParams.get('viewerViewDistance'),
-    viewerCamera: parsedViewerUrl.searchParams.get('viewerCamera'),
-    viewerReadOnly: parsedViewerUrl.searchParams.get('viewerReadOnly'),
+function getSafeDistFilePath (distPath) {
+  const filePath = path.resolve(DIST_DIR, distPath)
+  if (!filePath.startsWith(`${DIST_DIR}${path.sep}`)) return
+  if (!fs.existsSync(filePath)) return
+  if (!fs.statSync(filePath).isFile()) return
+  return filePath
+}
+
+function getDistRootAssetFileNames () {
+  distRootAssetFileNames ??= new Set(fs.readdirSync(DIST_DIR)
+    .filter(fileName => fs.statSync(path.join(DIST_DIR, fileName)).isFile()))
+  return distRootAssetFileNames
+}
+
+function getDistAssetPathFromProxyPath (reqPath) {
+  for (const dirName of DIST_ASSET_DIR_NAMES) {
+    const marker = `/${dirName}/`
+    const markerIndex = reqPath.indexOf(marker)
+    if (markerIndex !== -1) {
+      return getSafeDistFilePath(reqPath.slice(markerIndex + 1))
+    }
   }
+
+  const basename = path.posix.basename(reqPath)
+  if (getDistRootAssetFileNames().has(basename)) {
+    return getSafeDistFilePath(basename)
+  }
+}
+
+function isBase64WebSocketRequest (req) {
+  try {
+    return new URL(req.url, 'http://localhost').searchParams.get('transport') === 'base64'
+  } catch {
+    return false
+  }
+}
+
+function decodeBase64WebSocketPayload (data, isBinary) {
+  if (isBinary) return data
+
+  const text = Buffer.isBuffer(data) ? data.toString() : String(data)
+  if (!text.startsWith('base64:')) return data
+
+  return Buffer.from(text.slice('base64:'.length), 'base64')
+}
+
+function encodeBase64WebSocketPayload (data) {
+  if (typeof data === 'string') return data
+  return `base64:${Buffer.from(data).toString('base64')}`
+}
+
+function createBase64WebSocketWrapper (webSocket) {
+  const wrapper = Object.create(webSocket)
+
+  wrapper.on = (eventName, listener) => {
+    if (eventName !== 'message') {
+      return webSocket.on(eventName, listener)
+    }
+
+    return webSocket.on('message', (data, isBinary) => {
+      listener(decodeBase64WebSocketPayload(data, isBinary), isBinary)
+    })
+  }
+  wrapper.send = (data, callback) => {
+    return webSocket.send(encodeBase64WebSocketPayload(data), callback)
+  }
+  wrapper.close = (...args) => webSocket.close(...args)
+
+  return wrapper
+}
+
+function addBase64WebSocketTransport (plugin) {
+  const wsServer = plugin?._wsServer
+  if (!wsServer || wsServer.__minecraftWebClientBase64Transport) return
+
+  const originalNewConnection = wsServer.newConnection.bind(wsServer)
+
+  wsServer.newConnection = (webSocket, req) => {
+    const nextWebSocket = isBase64WebSocketRequest(req)
+      ? createBase64WebSocketWrapper(webSocket)
+      : webSocket
+    return originalNewConnection(nextWebSocket, req)
+  }
+  wsServer.__minecraftWebClientBase64Transport = true
 }
 
 function createPluginServerOnHttpServer (bot, settings, server) {
@@ -78,7 +149,7 @@ function createPluginServerOnHttpServer (bot, settings, server) {
 
   try {
     originalSetNextWebsocketOptions({ server })
-    return createMineflayerPluginServer(bot, {
+    const plugin = createMineflayerPluginServer(bot, {
       websocketEnabled: true,
       websocketPort: settings.port,
       tcpEnabled: false,
@@ -86,6 +157,8 @@ function createPluginServerOnHttpServer (bot, settings, server) {
       showConnectionInstructions: false,
       stopServersOnDisconnect: false
     })
+    addBase64WebSocketTransport(plugin)
+    return plugin
   } finally {
     wsServerModule.setNextWebsocketOptions = originalSetNextWebsocketOptions
     originalSetNextWebsocketOptions(undefined)
@@ -197,21 +270,30 @@ function mineflayer (bot, options = {}) {
   app.set('trust proxy', true)
   app.use(compression())
 
-  app.get(VIEWER_BOOTSTRAP_CONFIG_PATH, (req, res) => {
-    res.setHeader('Cache-Control', 'no-store')
-    res.json(buildViewerBootstrapPayload(req, settings))
-  })
-
-  app.get(['/', '/index.html'], (req, res, next) => {
-    if (req.query.viewerConnect) {
+  app.get('*', (req, res, next) => {
+    if (!isViewerBootstrapConfigPath(req.path)) {
       next()
       return
     }
 
-    res.redirect(buildViewerUrl(req, settings))
+    res.setHeader('Cache-Control', 'no-store')
+    res.json(buildViewerBootstrapPayload(settings))
+  })
+
+  app.get(['/', '/index.html'], (_req, res) => {
+    res.sendFile(INDEX_FILE)
   })
 
   app.use(express.static(DIST_DIR))
+  app.use((req, res, next) => {
+    const assetPath = getDistAssetPathFromProxyPath(req.path)
+    if (!assetPath) {
+      next()
+      return
+    }
+
+    res.sendFile(assetPath)
+  })
   app.get('*', (_req, res) => {
     res.sendFile(INDEX_FILE)
   })
@@ -266,7 +348,7 @@ function mineflayer (bot, options = {}) {
   })
 
   server.listen(settings.port, () => {
-    console.log(`Minecraft Web Client viewer running on http://127.0.0.1:${settings.port}`)
+    console.log(`Minecraft Web Client viewer running on port: ${settings.port}`)
   })
 
   return viewer

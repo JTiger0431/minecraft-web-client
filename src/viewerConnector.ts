@@ -21,6 +21,17 @@ export const viewerVersionState = proxy({
   clientIgnoredPackets: [] as string[]
 })
 
+type ViewerVersionData = {
+  version: string
+  time: number
+  replEnabled: boolean
+  consoleEnabled: boolean
+  requiresPass: boolean
+  forwardChat: boolean
+  clientIgnoredPackets?: string[]
+  takeoverMode?: boolean
+}
+
 type ViewerPrimitive = {
   id: string
   type: 'line'
@@ -60,29 +71,29 @@ const viewerPrimitives = new Map<string, ViewerPrimitive>()
 const updatePrimitiveInBackend = (primitive: ViewerPrimitive) => {
   const methods = getThreeJsRendererMethods()
   if (!methods?.setPrimitive) return
-  void methods.setPrimitive(primitive)
+  methods.setPrimitive(primitive)
 }
 
 const removePrimitiveFromBackend = (id: string) => {
   const methods = getThreeJsRendererMethods()
   if (!methods?.removePrimitive) return
-  void methods.removePrimitive(id)
+  methods.removePrimitive(id)
 }
 
 const clearViewerPrimitives = () => {
   viewerPrimitives.clear()
   const methods = getThreeJsRendererMethods()
   if (!methods?.clearPrimitives) return
-  void methods.clearPrimitives()
+  methods.clearPrimitives()
 }
 
 export const syncViewerPrimitivesToBackend = () => {
   const methods = getThreeJsRendererMethods()
   if (!methods?.clearPrimitives || !methods?.setPrimitive) return
 
-  void methods.clearPrimitives()
+  methods.clearPrimitives()
   for (const primitive of viewerPrimitives.values()) {
-    void methods.setPrimitive(primitive)
+    methods.setPrimitive(primitive)
   }
 }
 
@@ -102,41 +113,35 @@ class CustomDuplex extends Duplex {
 export const getViewerVersionData = async (url: string) => {
   const ws = await openWebsocket(url)
   ws.send('version')
-  const result = await new Promise<{
-    version: string
-    time: number,
-    replEnabled: boolean,
-    consoleEnabled: boolean,
-    requiresPass: boolean,
-    forwardChat: boolean,
-    clientIgnoredPackets?: string[]
-    takeoverMode?: boolean
-  }>((resolve, reject) => {
+  const result = await new Promise<ViewerVersionData>((resolve, reject) => {
     ws.addEventListener('message', async (message) => {
       const { data } = message
       const parsed = JSON.parse(data.toString())
       resolve(parsed)
       ws.close()
-      // Update viewer version state
-      Object.assign(viewerVersionState, parsed)
-      // todo
-      customEvents.on('mineflayerBotCreated', () => {
-        const client = bot._client as any
-        const oldWrite = client.write.bind(client)
-        client.write = (...args) => {
-          const [name] = args
-          if (parsed?.clientIgnoredPackets?.includes(name)) {
-            return
-          }
-          oldWrite(...args)
-        }
-      })
     })
   })
+  applyViewerVersionData(result)
+  return result
+}
+
+const applyViewerVersionData = (result: ViewerVersionData) => {
+  Object.assign(viewerVersionState, result)
   mineflayerConsoleState.consoleEnabled = result.consoleEnabled
   mineflayerConsoleState.replEnabled = result.replEnabled
   mineflayerConsoleState.takeoverMode = result.takeoverMode ?? false
-  return result
+
+  customEvents.on('mineflayerBotCreated', () => {
+    const client = bot._client as any
+    const oldWrite = client.write.bind(client)
+    client.write = (...args) => {
+      const [name] = args
+      if (result.clientIgnoredPackets?.includes(name)) {
+        return
+      }
+      oldWrite(...args)
+    }
+  })
 }
 
 const openWebsocket = async (url: string) => {
@@ -151,20 +156,42 @@ const openWebsocket = async (url: string) => {
   return ws
 }
 
+const usesBase64Transport = (url: string) => {
+  try {
+    return new URL(url).searchParams.get('transport') === 'base64'
+  } catch {
+    return false
+  }
+}
+
+const encodeWebSocketPayload = (data: any, base64Transport: boolean) => {
+  if (!base64Transport) return data
+  return `base64:${Buffer.from(data).toString('base64')}`
+}
+
+const decodeWebSocketPayload = async (data: any) => {
+  if (typeof data === 'string' && data.startsWith('base64:')) {
+    return Buffer.from(data.slice('base64:'.length), 'base64')
+  }
+
+  if (data instanceof Blob) {
+    data = await data.arrayBuffer()
+  }
+
+  return Buffer.from(data)
+}
+
 export const getWsProtocolStream = async (url: string) => {
+  const base64Transport = usesBase64Transport(url)
   const ws = await openWebsocket(url)
   const clientDuplex = new CustomDuplex(undefined, data => {
     // console.log('send', Buffer.from(data).toString('hex'))
-    ws.send(data)
+    ws.send(encodeWebSocketPayload(data, base64Transport))
   })
   // todo use keep alive instead?
   let lastMessageTime = performance.now()
   ws.addEventListener('message', async (message) => {
-    let { data } = message
-    if (data instanceof Blob) {
-      data = await data.arrayBuffer()
-    }
-    clientDuplex.push(Buffer.from(data))
+    clientDuplex.push(await decodeWebSocketPayload(message.data))
     lastMessageTime = performance.now()
   })
   setInterval(() => {
@@ -259,9 +286,8 @@ const handleCustomChannel = () => {
         }
         break
       }
-      // todo
-      case 'kick' as any: {
-        bot.emit('end', (data as any).reason)
+      case 'kick': {
+        bot.emit('end', data.reason)
         break
       }
       case 'ui': {

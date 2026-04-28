@@ -86,7 +86,8 @@ import { parseFormattedMessagePacket } from './botUtils'
 import { appStartup } from './clientMods'
 import { getViewerVersionData, getWsProtocolStream, onBotCreatedViewerHandler, syncViewerPrimitivesToBackend } from './viewerConnector'
 import { getWebsocketStream } from './mineflayer/websocket-core'
-import { appQueryParams, appQueryParamsArray } from './appParams'
+import { appQueryParams, appQueryParamsArray, setRuntimeAppParams } from './appParams'
+import { getViewerBootstrapConfigUrl, getViewerWebSocketUrl } from './viewerUrl'
 import { playerState } from './mineflayer/playerState'
 import { states } from 'minecraft-protocol'
 import { initMotionTracking } from './react/uiMotion'
@@ -126,20 +127,28 @@ customChannels()
 
 if (appQueryParams.testCrashApp === '2') throw new Error('test')
 
-const VIEWER_BOOTSTRAP_CONFIG_PATH = '/__minecraft-web-client-viewer-config'
-
 function hideCurrentScreens () {
   const appStatus = activeModalStack.find(x => x.reactType === 'app-status')
   activeModalStacks['main-menu'] = activeModalStack.filter(x => x !== appStatus)
   insertActiveModalStack('', appStatus ? [appStatus] : [])
 }
 
-const maybeRedirectToBundledViewerSession = async () => {
+type ViewerBootstrapPayload = Partial<{
+  viewerConnect: string
+  viewerViewDistance: string | number
+  viewerCamera: string
+  viewerReadOnly: string | boolean
+}>
+
+const isViewerReadOnly = (value: string | boolean | undefined) => {
+  return value === true || value === '1' || value === 'true'
+}
+
+const maybeConnectToBundledViewerSession = async () => {
   if (window.location.search) return false
-  if (window.location.pathname !== '/' && window.location.pathname !== '/index.html') return false
 
   try {
-    const response = await fetch(VIEWER_BOOTSTRAP_CONFIG_PATH, {
+    const response = await fetch(getViewerBootstrapConfigUrl(window.location.href), {
       cache: 'no-store',
       headers: {
         Accept: 'application/json'
@@ -147,10 +156,18 @@ const maybeRedirectToBundledViewerSession = async () => {
     })
     if (!response.ok) return false
 
-    const payload = await response.json() as { viewerUrl?: string }
-    if (!payload.viewerUrl) return false
+    const payload = await response.json() as ViewerBootstrapPayload
+    setRuntimeAppParams({
+      viewerViewDistance: payload.viewerViewDistance,
+      viewerCamera: payload.viewerCamera,
+      viewerReadOnly: payload.viewerReadOnly,
+    })
 
-    window.location.replace(payload.viewerUrl)
+    void connect({
+      username: `viewer-${Math.random().toString(36).slice(2, 10)}`,
+      viewerWsConnect: payload.viewerConnect || getViewerWebSocketUrl(window.location.href),
+      viewerReadOnly: isViewerReadOnly(payload.viewerReadOnly),
+    })
     return true
   } catch {
     return false
@@ -1009,9 +1026,9 @@ document.body.addEventListener('touchstart', (e) => {
 // #endregion
 
 // immediate game enter actions: reconnect or URL QS
-const maybeEnterGame = () => {
-  if (!appQueryParams.viewerConnect) {
-    void maybeRedirectToBundledViewerSession()
+const maybeEnterGame = async () => {
+  if (!appQueryParams.viewerConnect && await maybeConnectToBundledViewerSession()) {
+    return
   }
 
   const waitForConfigFsLoad = (fn: () => void) => {
@@ -1152,12 +1169,10 @@ const maybeEnterGame = () => {
 
 // Skip game connection logic in playground mode
 if (!isPlayground) {
-  try {
-    maybeEnterGame()
-  } catch (err) {
+  void maybeEnterGame().catch(err => {
     console.error(err)
     alert(`Something went wrong: ${err}`)
-  }
+  })
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion

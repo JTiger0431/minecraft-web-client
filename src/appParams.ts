@@ -84,6 +84,17 @@ type AppQsParamsArrayTransformed = {
 
 globalThis.process ??= {} as any
 const initialAppConfig = process?.env?.INLINED_APP_CONFIG as AppConfig ?? {}
+const runtimeAppParams: Partial<Record<keyof AppQsParams, string>> = {}
+
+export function setRuntimeAppParams (params: Partial<Record<keyof AppQsParams, string | number | boolean | null | undefined>>) {
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === '') {
+      delete runtimeAppParams[key]
+    } else {
+      runtimeAppParams[key] = String(value)
+    }
+  }
+}
 
 export const appQueryParams = new Proxy<AppQsParams>({} as AppQsParams, {
   get (target, property) {
@@ -92,6 +103,8 @@ export const appQueryParams = new Proxy<AppQsParams>({} as AppQsParams, {
     }
     const qsParam = qsParams.get(property)
     if (qsParam) return qsParam
+    const runtimeParam = runtimeAppParams[property as keyof AppQsParams]
+    if (runtimeParam) return runtimeParam
     return miscUiState.appConfig?.appParams?.[property]
   },
 })
