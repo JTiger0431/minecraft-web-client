@@ -87,25 +87,42 @@ const applyBirdseyeZoom = (deltaY: number) => {
 const applyBirdseyePan = (deltaX: number, deltaY: number) => {
   if (!isBirdseyePerspective()) return
   const { birdseyeYaw, birdseyeDistance } = appViewer.playerState.reactive
+  const viewYaw = birdseyeYaw + Math.PI
   const viewerCanvas = document.getElementById('viewer-canvas') as HTMLCanvasElement | null
   const viewportHeight = Math.max(1, viewerCanvas?.clientHeight ?? document.documentElement.clientHeight ?? window.innerHeight ?? 1)
   const verticalFovRadians = (appViewer.inWorldRenderingConfig.fov ?? 75) * Math.PI / 180
   const worldUnitsPerPixel = (2 * Math.tan(verticalFovRadians / 2) * birdseyeDistance) / viewportHeight
   const panSpeed = Math.max(0.004, worldUnitsPerPixel)
-  const rightX = Math.cos(birdseyeYaw)
-  const rightZ = -Math.sin(birdseyeYaw)
-  const forwardX = -Math.sin(birdseyeYaw)
-  const forwardZ = -Math.cos(birdseyeYaw)
+  const rightX = Math.cos(viewYaw)
+  const rightZ = -Math.sin(viewYaw)
+  const forwardX = -Math.sin(viewYaw)
+  const forwardZ = -Math.cos(viewYaw)
 
   appViewer.playerState.reactive.birdseyePanX += (-deltaX * rightX + deltaY * forwardX) * panSpeed
   appViewer.playerState.reactive.birdseyePanZ += (-deltaX * rightZ + deltaY * forwardZ) * panSpeed
 }
 
+const resetBirdseyePan = () => {
+  appViewer.playerState.reactive.birdseyePanX = 0
+  appViewer.playerState.reactive.birdseyePanY = 0
+  appViewer.playerState.reactive.birdseyePanZ = 0
+}
+
 const birdseyeDragState = {
   active: false,
   mode: 'rotate' as 'rotate' | 'pan',
+  button: 0,
   lastX: 0,
   lastY: 0
+}
+
+const buttonToButtonsMask = (button: number) => {
+  switch (button) {
+    case 0: return 1
+    case 1: return 4
+    case 2: return 2
+    default: return 0
+  }
 }
 
 window.addEventListener('mousemove', (e: MouseEvent) => {
@@ -119,6 +136,10 @@ window.addEventListener('mousedown', (e: MouseEvent) => {
   e.preventDefault()
   birdseyeDragState.active = true
   birdseyeDragState.mode = e.button === 2 || e.shiftKey || e.metaKey || e.ctrlKey ? 'pan' : 'rotate'
+  birdseyeDragState.button = e.button
+  if (birdseyeDragState.mode === 'rotate') {
+    resetBirdseyePan()
+  }
   birdseyeDragState.lastX = e.clientX
   birdseyeDragState.lastY = e.clientY
 }, { capture: true })
@@ -126,6 +147,11 @@ window.addEventListener('mousedown', (e: MouseEvent) => {
 window.addEventListener('mousemove', (e: MouseEvent) => {
   if (!birdseyeDragState.active || !isBirdseyePerspective()) return
   if (document.pointerLockElement) return
+
+  if ((e.buttons & buttonToButtonsMask(birdseyeDragState.button)) === 0) {
+    birdseyeDragState.active = false
+    return
+  }
 
   const deltaX = e.clientX - birdseyeDragState.lastX
   const deltaY = e.clientY - birdseyeDragState.lastY
@@ -161,6 +187,11 @@ window.addEventListener('wheel', (e: WheelEvent) => {
   e.preventDefault()
   applyBirdseyeZoom(e.deltaY)
 }, { passive: false, capture: true })
+
+window.addEventListener('contextmenu', (e: MouseEvent) => {
+  if (!isGameActive(true) || !isBirdseyePerspective() || !isViewerInteractionTarget(e.target)) return
+  e.preventDefault()
+}, { capture: true })
 
 export const onControInit = () => {
   contro.on('stickMovement', ({ stick, vector }) => {

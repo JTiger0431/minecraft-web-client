@@ -78,6 +78,8 @@ export class CameraShake {
       // For VR camera, only apply yaw rotation
       const yawQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.baseYaw)
       camera.setRotationFromQuaternion(yawQuat)
+    } else if (this.worldRenderer.playerStateReactive.perspective === 'birdseye') {
+      camera.quaternion.identity()
     } else {
       // For regular camera, apply all rotations
       // Add tiny offsets to prevent z-fighting at ideal angles (90, 180, 270 degrees)

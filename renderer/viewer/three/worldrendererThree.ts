@@ -570,13 +570,23 @@ export class WorldRendererThree extends WorldRendererCommon {
     this.updateCamera(vecPos, rotation.yaw, rotation.pitch)
   }
 
+  private syncBirdseyeAnchorFromPlayer () {
+    if (this.renderer.xr.isPresenting || this.playerStateUtils.isSpectatingEntity()) return
+    const currentBot = window.bot as typeof bot | undefined
+    if (!currentBot?.entity?.position) return
+
+    const { position } = currentBot.entity
+    this.cameraObject.position.set(position.x, position.y + this.playerStateReactive.eyeHeight, position.z)
+  }
+
   private updateBirdseyeCamera () {
+    this.syncBirdseyeAnchorFromPlayer()
     const target = new THREE.Vector3(
       this.playerStateReactive.birdseyePanX,
       this.playerStateReactive.birdseyePanY,
       this.playerStateReactive.birdseyePanZ
     )
-    const yaw = this.playerStateReactive.birdseyeYaw
+    const yaw = this.playerStateReactive.birdseyeYaw + Math.PI
     const pitch = THREE.MathUtils.clamp(this.playerStateReactive.birdseyePitch, MIN_BIRDSEYE_PITCH, MAX_BIRDSEYE_PITCH)
     const distance = THREE.MathUtils.clamp(this.playerStateReactive.birdseyeDistance, MIN_BIRDSEYE_DISTANCE, MAX_BIRDSEYE_DISTANCE)
     const horizontalDistance = Math.cos(pitch) * distance
@@ -586,7 +596,54 @@ export class WorldRendererThree extends WorldRendererCommon {
       target.y + Math.sin(pitch) * distance,
       target.z + Math.cos(yaw) * horizontalDistance
     )
-    this.camera.lookAt(target)
+    const lookAtMatrix = new THREE.Matrix4().lookAt(this.camera.position, target, this.camera.up)
+    this.camera.quaternion.setFromRotationMatrix(lookAtMatrix)
+  }
+
+  private updateThirdPersonCamera (perspective: 'third_person_back' | 'third_person_front') {
+    const anchor = this.cameraObject.position
+    const rotation = this.cameraShake.getBaseRotation()
+    const thirdPersonPos = this.getThirdPersonCamera(
+      new THREE.Vector3(anchor.x, anchor.y, anchor.z),
+      rotation.yaw,
+      rotation.pitch
+    )
+
+    const distance = anchor.distanceTo(new THREE.Vector3(thirdPersonPos.x, thirdPersonPos.y, thirdPersonPos.z))
+    this.camera.position.set(0, 0, perspective === 'third_person_back' ? distance : -distance)
+    this.camera.rotation.set(0, perspective === 'third_person_front' ? Math.PI : 0, 0)
+  }
+
+  private clearThirdPersonDebug () {
+    if (this.debugRaycastHelper) {
+      this.scene.remove(this.debugRaycastHelper)
+      this.debugRaycastHelper = undefined
+    }
+    if (this.debugHitPoint) {
+      this.scene.remove(this.debugHitPoint)
+      this.debugHitPoint = undefined
+    }
+  }
+
+  private updatePerspectiveCamera () {
+    if (this.playerStateUtils.isSpectatingEntity()) {
+      this.camera.position.set(0, 0, 0)
+      this.camera.rotation.set(0, 0, 0)
+      this.clearThirdPersonDebug()
+      return
+    }
+
+    const { perspective } = this.playerStateReactive
+    if (perspective === 'birdseye') {
+      this.updateBirdseyeCamera()
+      this.clearThirdPersonDebug()
+    } else if (perspective === 'third_person_back' || perspective === 'third_person_front') {
+      this.updateThirdPersonCamera(perspective)
+    } else {
+      this.camera.position.set(0, 0, 0)
+      this.camera.rotation.set(0, 0, 0)
+      this.clearThirdPersonDebug()
+    }
   }
 
   getThirdPersonCamera (pos: THREE.Vector3 | null, yaw: number, pitch: number) {
@@ -714,11 +771,12 @@ export class WorldRendererThree extends WorldRendererCommon {
       }
 
       this.currentPosTween?.stop()
-      // Use instant camera updates (0 delay) in playground mode when camera controls are enabled
-      const tweenDelay = this.displayOptions.inWorldRenderingConfig.instantCameraUpdate
-        ? 0
-        : (this.playerStateUtils.isSpectatingEntity() ? 150 : 50)
-      this.currentPosTween = new tweenJs.Tween(this.cameraObject.position).to({ x: pos.x, y: pos.y, z: pos.z }, tweenDelay).start()
+      if (this.playerStateUtils.isSpectatingEntity() && !this.displayOptions.inWorldRenderingConfig.instantCameraUpdate) {
+        this.currentPosTween = new tweenJs.Tween(this.cameraObject.position).to({ x: pos.x, y: pos.y, z: pos.z }, 150).start()
+      } else {
+        this.currentPosTween = undefined
+        this.cameraObject.position.set(pos.x, pos.y, pos.z)
+      }
       // this.freeFlyState.position = pos
     }
 
@@ -735,47 +793,12 @@ export class WorldRendererThree extends WorldRendererCommon {
       this.currentRotTween?.stop()
       this.currentRotTween = new tweenJs.Tween(rotation).to({ pitch, yaw: yaw + yawOffset }, 100)
         .onUpdate(params => this.cameraShake.setBaseRotation(params.pitch, params.yaw - yawOffset)).start()
+      this.updatePerspectiveCamera()
     } else {
       this.currentRotTween?.stop()
       const { perspective } = this.playerStateReactive
       this.cameraShake.setBaseRotation(perspective === 'birdseye' ? 0 : pitch, perspective === 'birdseye' ? 0 : yaw)
-
-      if (perspective === 'birdseye') {
-        this.updateBirdseyeCamera()
-      } else if (perspective === 'third_person_back' || perspective === 'third_person_front') {
-        // Use getThirdPersonCamera for proper raycasting with max distance of 4
-        const currentCameraPos = this.cameraObject.position
-        const thirdPersonPos = this.getThirdPersonCamera(
-          new THREE.Vector3(currentCameraPos.x, currentCameraPos.y, currentCameraPos.z),
-          yaw,
-          pitch
-        )
-
-        const distance = currentCameraPos.distanceTo(new THREE.Vector3(thirdPersonPos.x, thirdPersonPos.y, thirdPersonPos.z))
-        // Apply Z offset based on perspective and calculated distance
-        const zOffset = perspective === 'third_person_back' ? distance : -distance
-        this.camera.position.set(0, 0, zOffset)
-
-        if (perspective === 'third_person_front') {
-          // Flip camera view 180 degrees around Y axis for front view
-          this.camera.rotation.set(0, Math.PI, 0)
-        } else {
-          this.camera.rotation.set(0, 0, 0)
-        }
-      } else {
-        this.camera.position.set(0, 0, 0)
-        this.camera.rotation.set(0, 0, 0)
-
-        // remove any debug raycasting
-        if (this.debugRaycastHelper) {
-          this.scene.remove(this.debugRaycastHelper)
-          this.debugRaycastHelper = undefined
-        }
-        if (this.debugHitPoint) {
-          this.scene.remove(this.debugHitPoint)
-          this.debugHitPoint = undefined
-        }
-      }
+      this.updatePerspectiveCamera()
     }
 
     this.updateCameraSectionPos()
@@ -813,11 +836,15 @@ export class WorldRendererThree extends WorldRendererCommon {
 
   render (sizeChanged = false) {
     if (this.reactiveDebugParams.stopRendering) return
-    this.debugChunksVisibilityOverride()
     const start = performance.now()
     this.lastRendered = performance.now()
     this.cursorBlock.render()
     this.updateSectionOffsets()
+    if (this.playerStateReactive.perspective === 'birdseye') {
+      this.updateBirdseyeCamera()
+      this.updateCameraSectionPos()
+    }
+    this.debugChunksVisibilityOverride()
 
     // Update skybox position to follow camera
     const cameraPos = this.getCameraPosition()
