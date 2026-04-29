@@ -87,16 +87,15 @@ const applyBirdseyeZoom = (deltaY: number) => {
 const applyBirdseyePan = (deltaX: number, deltaY: number) => {
   if (!isBirdseyePerspective()) return
   const { birdseyeYaw, birdseyeDistance } = appViewer.playerState.reactive
-  const viewYaw = birdseyeYaw + Math.PI
   const viewerCanvas = document.getElementById('viewer-canvas') as HTMLCanvasElement | null
   const viewportHeight = Math.max(1, viewerCanvas?.clientHeight ?? document.documentElement.clientHeight ?? window.innerHeight ?? 1)
   const verticalFovRadians = (appViewer.inWorldRenderingConfig.fov ?? 75) * Math.PI / 180
   const worldUnitsPerPixel = (2 * Math.tan(verticalFovRadians / 2) * birdseyeDistance) / viewportHeight
   const panSpeed = Math.max(0.004, worldUnitsPerPixel)
-  const rightX = Math.cos(viewYaw)
-  const rightZ = -Math.sin(viewYaw)
-  const forwardX = -Math.sin(viewYaw)
-  const forwardZ = -Math.cos(viewYaw)
+  const rightX = Math.cos(birdseyeYaw)
+  const rightZ = -Math.sin(birdseyeYaw)
+  const forwardX = -Math.sin(birdseyeYaw)
+  const forwardZ = -Math.cos(birdseyeYaw)
 
   appViewer.playerState.reactive.birdseyePanX += (-deltaX * rightX + deltaY * forwardX) * panSpeed
   appViewer.playerState.reactive.birdseyePanZ += (-deltaX * rightZ + deltaY * forwardZ) * panSpeed

@@ -5,7 +5,6 @@ const { EventEmitter } = require('events')
 
 const compression = require('compression')
 const express = require('express')
-const { createMineflayerPluginServer } = require('mcraft-fun-mineflayer/build/server')
 const wsServerModule = require('mcraft-fun-mineflayer/build/wsServer')
 
 const DEFAULT_PORT = 3000
@@ -15,6 +14,72 @@ const INDEX_FILE = path.join(DIST_DIR, 'index.html')
 const VIEWER_BOOTSTRAP_CONFIG_PATH = '/__minecraft-web-client-viewer-config'
 const DIST_ASSET_DIR_NAMES = ['background', 'static', 'textures']
 let distRootAssetFileNames
+
+const PROTOCOL_ANGLE_PACKET_FIELDS = {
+  spawn_entity: ['pitch', 'yaw', 'headPitch'],
+  named_entity_spawn: ['yaw', 'pitch'],
+  spawn_entity_living: ['yaw', 'pitch', 'headPitch'],
+  entity_look: ['yaw', 'pitch'],
+  entity_move_look: ['yaw', 'pitch'],
+  entity_teleport: ['yaw', 'pitch'],
+  entity_head_rotation: ['headYaw']
+}
+
+function encodeProtocolAngleByte (degrees) {
+  const normalizedDegrees = ((degrees % 360) + 360) % 360
+  const unsignedByte = Math.floor(normalizedDegrees * 256 / 360) & 0xff
+  return unsignedByte > 127 ? unsignedByte - 256 : unsignedByte
+}
+
+function normalizeProtocolAnglePacket (name, data) {
+  const angleFields = PROTOCOL_ANGLE_PACKET_FIELDS[name]
+  if (!angleFields || !data) return data
+
+  let normalizedData
+  for (const field of angleFields) {
+    const value = data[field]
+    if (typeof value !== 'number') continue
+    if (Number.isInteger(value) && value >= -128 && value <= 127) continue
+
+    normalizedData ??= { ...data }
+    normalizedData[field] = encodeProtocolAngleByte(value)
+  }
+
+  return normalizedData ?? data
+}
+
+function patchMcraftEntityReplicatorAngleWrites () {
+  const entityReplicatorModule = require('mcraft-fun-mineflayer/build/replicator/entity')
+  if (entityReplicatorModule.__minecraftWebClientAnglePatch) return
+
+  const originalEntityReplicator = entityReplicatorModule.entityReplicator
+  entityReplicatorModule.entityReplicator = (bot) => {
+    const replicator = originalEntityReplicator(bot)
+    const originalOnClientJoin = replicator.onClientJoin
+
+    return {
+      ...replicator,
+      onClientJoin (client) {
+        const originalWriteMethod = client.write
+        const originalWrite = originalWriteMethod.bind(client)
+        client.write = (name, data) => {
+          return originalWrite(name, normalizeProtocolAnglePacket(name, data))
+        }
+
+        try {
+          return originalOnClientJoin.call(replicator, client)
+        } finally {
+          client.write = originalWriteMethod
+        }
+      }
+    }
+  }
+
+  entityReplicatorModule.__minecraftWebClientAnglePatch = true
+}
+
+patchMcraftEntityReplicatorAngleWrites()
+const { createMineflayerPluginServer } = require('mcraft-fun-mineflayer/build/server')
 
 function assertViewerCanStart (bot, settings) {
   if (settings.prefix) {

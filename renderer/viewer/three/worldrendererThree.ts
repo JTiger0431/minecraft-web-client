@@ -586,7 +586,7 @@ export class WorldRendererThree extends WorldRendererCommon {
       this.playerStateReactive.birdseyePanY,
       this.playerStateReactive.birdseyePanZ
     )
-    const yaw = this.playerStateReactive.birdseyeYaw + Math.PI
+    const yaw = this.playerStateReactive.birdseyeYaw
     const pitch = THREE.MathUtils.clamp(this.playerStateReactive.birdseyePitch, MIN_BIRDSEYE_PITCH, MAX_BIRDSEYE_PITCH)
     const distance = THREE.MathUtils.clamp(this.playerStateReactive.birdseyeDistance, MIN_BIRDSEYE_DISTANCE, MAX_BIRDSEYE_DISTANCE)
     const horizontalDistance = Math.cos(pitch) * distance
